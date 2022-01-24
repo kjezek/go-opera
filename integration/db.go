@@ -2,12 +2,12 @@ package integration
 
 import (
 	"errors"
+	"github.com/Fantom-foundation/go-opera/integration/badger"
 	"strings"
 
 	"github.com/Fantom-foundation/lachesis-base/hash"
 	"github.com/Fantom-foundation/lachesis-base/inter/dag"
 	"github.com/Fantom-foundation/lachesis-base/kvdb"
-	"github.com/Fantom-foundation/lachesis-base/kvdb/leveldb"
 	"github.com/Fantom-foundation/lachesis-base/kvdb/memorydb"
 	"github.com/Fantom-foundation/lachesis-base/utils/cachescale"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -20,9 +20,7 @@ func DBProducer(chaindataDir string, scale cachescale.Func) kvdb.IterableDBProdu
 		return memorydb.NewProducer("")
 	}
 
-	return leveldb.NewProducer(chaindataDir, func(name string) int {
-		return dbCacheSize(name, scale.I)
-	})
+	return badger.NewProducer(chaindataDir)
 }
 
 func CheckDBList(names []string) error {
