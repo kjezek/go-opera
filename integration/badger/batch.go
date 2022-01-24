@@ -77,15 +77,20 @@ func (b *batch) ValueSize() int {
 
 // Write flushes any accumulated data to disk.
 func (b *batch) Write() error {
-	return b.txn.Commit()
+	if b.txn != nil {
+		return b.txn.Commit()
+	}
+	return nil
 }
 
 // Reset resets the batch for reuse.
 func (b *batch) Reset() {
-	b.txn.Discard()
-	b.txn = nil
-	b.ops = make([]batchEntry, 0, 100)
-	b.size = 0
+	if b.txn != nil {
+		b.txn.Discard()
+		b.txn = nil
+		b.ops = make([]batchEntry, 0, 100)
+		b.size = 0
+	}
 }
 
 // Replay replays the batch contents.
