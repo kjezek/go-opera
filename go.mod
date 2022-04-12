@@ -45,6 +45,7 @@ require (
 	gopkg.in/urfave/cli.v1 v1.20.0
 )
 
-replace github.com/ethereum/go-ethereum => github.com/Fantom-foundation/go-ethereum v1.10.8-ftm-rc4
+// v1.10.8-ftm-rc4-rpc-timeout
+replace github.com/ethereum/go-ethereum => github.com/hkalina/go-ethereum v1.9.7-0.20220420181000-8998b2a3f533
 
 replace github.com/dvyukov/go-fuzz => github.com/guzenok/go-fuzz v0.0.0-20210103140116-f9104dfb626f
