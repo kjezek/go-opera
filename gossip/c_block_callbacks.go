@@ -51,9 +51,11 @@ var (
 	snapshotCommitTimer      = metrics.GetOrRegisterTimer("chain/snapshot/commits", nil)
 
 	blockInsertTimer     = metrics.GetOrRegisterTimer("chain/inserts", nil)
-	blockValidationTimer = metrics.GetOrRegisterTimer("chain/validation", nil)
 	blockExecutionTimer  = metrics.GetOrRegisterTimer("chain/execution", nil)
 	blockWriteTimer      = metrics.GetOrRegisterTimer("chain/write", nil)
+
+	executionExternalTimer  = metrics.GetOrRegisterTimer("chain/execution/external", nil)
+	beforeExecutionTimer  = metrics.GetOrRegisterTimer("chain/before/execute", nil)
 
 	_ = metrics.GetOrRegisterMeter("chain/reorg/executes", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/add", nil)
@@ -266,6 +268,7 @@ func consensusCallbackBeginBlockFn(
 
 				evmProcessor := blockProc.EVMModule.Start(blockCtx, statedb, evmStateReader, onNewLogAll, es.Rules, evmCfg, es.Rules.EvmChainConfig(store.GetUpgradeHeights()))
 				substart := time.Now()
+				beforeExecutionTimer.Update(substart.Sub(start)) // from block processing start to EVM init
 
 				// Execute pre-internal transactions
 				preInternalTxs := blockProc.PreTxTransactor.PopInternalTxs(blockCtx, bs, es, sealing, statedb)
@@ -322,10 +325,17 @@ func consensusCallbackBeginBlockFn(
 					for _, e := range blockEvents {
 						txs = append(txs, e.Txs()...)
 					}
+					txsProcessingStart := time.Now()
 
 					_ = evmProcessor.Execute(txs)
 
 					evmBlock, skippedTxs, allReceipts := evmProcessor.Finalize()
+
+					triehash := statedb.AccountHashes + statedb.StorageHashes
+					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates + statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
+					txsProcessingTime := time.Since(txsProcessingStart) - triehash - trieproc
+					executionExternalTimer.Update(txsProcessingTime)
+
 					block.SkippedTxs = skippedTxs
 					block.Root = hash.Hash(evmBlock.Root)
 					block.GasUsed = evmBlock.GasUsed
@@ -408,18 +418,19 @@ func consensusCallbackBeginBlockFn(
 					storageUpdateTimer.Update(statedb.StorageUpdates)
 					snapshotAccountReadTimer.Update(statedb.SnapshotAccountReads)
 					snapshotStorageReadTimer.Update(statedb.SnapshotStorageReads)
-					triehash := statedb.AccountHashes + statedb.StorageHashes // save to not double count in validation
-					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates
-					trieproc += statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
-					blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash)
+					triehash = statedb.AccountHashes + statedb.StorageHashes
+					trieproc = statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates + statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
+					blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash - txsProcessingTime)
 					// Update the metrics touched during block validation
 					accountHashTimer.Update(statedb.AccountHashes)
 					storageHashTimer.Update(statedb.StorageHashes)
-					blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
 					// Update the metrics touched by new block
 					headBlockGauge.Update(int64(blockCtx.Idx))
 					headHeaderGauge.Update(int64(blockCtx.Idx))
 					headFastBlockGauge.Update(int64(blockCtx.Idx))
+					// Measure the commit section
+					commitStart := time.Now()
+					commitsSumBefore := statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits
 
 					// Notify about new block
 					if feed != nil {
@@ -438,7 +449,7 @@ func consensusCallbackBeginBlockFn(
 					accountCommitTimer.Update(statedb.AccountCommits)
 					storageCommitTimer.Update(statedb.StorageCommits)
 					snapshotCommitTimer.Update(statedb.SnapshotCommits)
-					blockWriteTimer.Update(time.Since(substart) - statedb.AccountCommits - statedb.StorageCommits - statedb.SnapshotCommits)
+					blockWriteTimer.Update(time.Since(commitStart) - (statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits - commitsSumBefore))
 					blockInsertTimer.UpdateSince(start)
 
 					now := time.Now()
