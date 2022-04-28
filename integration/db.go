@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Fantom-foundation/go-opera/gossip"
@@ -34,6 +35,15 @@ type DropableStoreWithMetrics struct {
 
 	diskReadMeter  metrics.Meter // Meter for measuring the effective amount of data read
 	diskWriteMeter metrics.Meter // Meter for measuring the effective amount of data written
+
+	prefixReadGauge [512]metrics.Gauge
+	prefixWriteGauge [512]metrics.Gauge
+	batchWriteGauge metrics.Gauge
+
+	prefixUpdateDuration [512]int64
+	prefixReadDuration [512]int64
+	batchWriteDuration int64
+	name string
 
 	quitLock sync.Mutex      // Mutex protecting the quit channel access
 	quitChan chan chan error // Quit channel to stop the metrics collection before closing the database
@@ -67,6 +77,184 @@ func (ds *DropableStoreWithMetrics) Close() error {
 		ds.quitChan = nil
 	}
 	return ds.DropableStore.Close()
+}
+
+func prefixIndex(key []byte) int {
+	if len(key) == 0 {
+		return 0
+	} else if key[0] == 'M' {
+		return 256 + int(key[1])
+	} else {
+		return int(key[0])
+	}
+}
+
+func indexToPrefix(id int) string {
+	if id >= 256 {
+		id -= 256
+		if (id >= 'a' && id <= 'z') || (id >= 'A' && id <= 'Z') {
+			return fmt.Sprintf("M%c", id)
+		} else {
+			return fmt.Sprintf("M%x", id)
+		}
+	} else {
+		if (id >= 'a' && id <= 'z') || (id >= 'A' && id <= 'Z') {
+			return fmt.Sprintf("%c", id)
+		} else {
+			return fmt.Sprintf("%x", id)
+		}
+	}
+}
+
+func (ds *DropableStoreWithMetrics) markPrefix(i int, name string, readVal int64, writeVal int64) {
+	if readVal != 0 || writeVal != 0 {
+		if ds.prefixReadGauge[i] == nil {
+			ds.prefixReadGauge[i] = metrics.GetOrRegisterGauge("opera/chaindata/"+ds.name+"/prefix/read/"+name, nil)
+			ds.prefixWriteGauge[i] = metrics.GetOrRegisterGauge("opera/chaindata/"+ds.name+"/prefix/write/"+name, nil)
+		}
+		ds.prefixReadGauge[i].Update(readVal)
+		ds.prefixWriteGauge[i].Update(writeVal)
+	}
+}
+
+func (ds *DropableStoreWithMetrics) markPrefixSingle(key []byte) (read int64, write int64) {
+	i := prefixIndex(key)
+	read = atomic.LoadInt64(&ds.prefixReadDuration[i])
+	write = atomic.LoadInt64(&ds.prefixUpdateDuration[i])
+	ds.markPrefix(i, indexToPrefix(i), read, write)
+	return
+}
+
+func (ds *DropableStoreWithMetrics) markRange(minI int, maxI int, gaugeI int, name string) (read int64, write int64) {
+	for i := minI; i <= maxI; i++ {
+		read += atomic.LoadInt64(&ds.prefixReadDuration[i])
+		write += atomic.LoadInt64(&ds.prefixUpdateDuration[i])
+	}
+	ds.markPrefix(gaugeI, name, read, write)
+	return
+}
+
+func (ds *DropableStoreWithMetrics) markPrefixes() {
+	ds.markPrefixSingle([]byte{'e'})
+	ds.markRange(256, 511, int('M'), "M") // TrieDatabase + following:
+	ds.markPrefixSingle([]byte{'M', 'o'}) // StorageSnaps
+	ds.markPrefixSingle([]byte{'M', 'a'}) // AccountSnaps
+	ds.markPrefixSingle([]byte{'M', 'c'}) // EvmCodes
+	ds.markPrefixSingle([]byte{'L'}) // EvmLogs
+	ds.markPrefixSingle([]byte{'g'}) // Genesis
+	ds.markPrefixSingle([]byte{'b'}) // Blocks
+	ds.markPrefixSingle([]byte{'V'}) // NetVersion
+	ds.markPrefixSingle([]byte{'x'}) // TxPositions
+	ds.markPrefixSingle([]byte{'P'}) // EpochBlocks
+	ds.markPrefixSingle([]byte{'r'}) // Receipts
+	ds.markPrefixSingle([]byte{'B'}) // BlockHashes
+	ds.markPrefixSingle([]byte{'S'}) // SfcAPI
+	ds.markPrefixSingle([]byte{'h'}) // BlockEpochStateHistory
+	ds.markPrefixSingle([]byte{'D'}) // BlockEpochState
+	ds.markPrefixSingle([]byte{'_'}) // Version
+	ds.markPrefixSingle([]byte{'l'}) // HighestLamport
+	ds.markPrefixSingle([]byte{'*'}) // LlrLastBlockVotes
+	ds.markPrefixSingle([]byte{'!'}) // LlrState
+	ds.markPrefixSingle([]byte{'('}) // LlrLastEpochVote
+	ds.markPrefixSingle([]byte{'X'}) // Txs
+	ds.markPrefixSingle([]byte{'$'}) // LlrBlockVotes
+	ds.markPrefixSingle([]byte{'t'}) // JDajc: TransactionTraces
+	ds.markRange(0, 511, 511, "all")
+	ds.batchWriteGauge.Update(atomic.LoadInt64(&ds.batchWriteDuration))
+}
+
+func (ds *DropableStoreWithMetrics) Stat(property string) (string, error) {
+	if property == "leveldb.prefixes" {
+		out := "Prefixes Put consumed nanoseconds: " + ds.name + "\n"
+		out += fmt.Sprintf("BatchWrite: %d\n", atomic.LoadInt64(&ds.batchWriteDuration))
+		out += "Prefix\tRead\tWrite\n"
+		for i := 0; i < 512; i++ {
+			if ds.prefixReadDuration[i] != 0 || ds.prefixUpdateDuration[i] != 0 {
+				out += fmt.Sprintf("%s\t%d\t%d\n", indexToPrefix(i), atomic.LoadInt64(&ds.prefixReadDuration[i]), atomic.LoadInt64(&ds.prefixUpdateDuration[i]))
+			}
+		}
+		return out, nil
+	} else {
+		return ds.DropableStore.Stat(property)
+	}
+}
+
+func (ds *DropableStoreWithMetrics) Put(key []byte, value []byte) error {
+	defer func(start time.Time) { atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	return ds.DropableStore.Put(key, value)
+}
+
+func (ds *DropableStoreWithMetrics) Delete(key []byte) error {
+	defer func(start time.Time) { atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	return ds.DropableStore.Delete(key)
+}
+
+func (ds *DropableStoreWithMetrics) Has(key []byte) (bool, error) {
+	defer func(start time.Time) { atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	return ds.DropableStore.Has(key)
+}
+
+func (ds *DropableStoreWithMetrics) Get(key []byte) ([]byte, error) {
+	defer func(start time.Time) { atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	return ds.DropableStore.Get(key)
+}
+
+func (ds *DropableStoreWithMetrics) NewBatch() kvdb.Batch {
+	return &batchWithMetrics{ds.DropableStore.NewBatch(), ds}
+}
+
+func (ds *DropableStoreWithMetrics) NewIterator(prefix []byte, start []byte) kvdb.Iterator {
+	defer func(start time.Time) { atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(prefix)], int64(time.Since(start))) }(time.Now())
+	return &iteratorWithMetrics{ds.DropableStore.NewIterator(prefix, start), ds, prefix}
+}
+
+func (ds *DropableStoreWithMetrics) GetSnapshot() (kvdb.Snapshot, error) {
+	s, err := ds.DropableStore.GetSnapshot()
+	if err != nil {
+		return s, err
+	}
+	return &snapshotWithMetrics{s, ds}, nil
+}
+
+type batchWithMetrics struct {
+	kvdb.Batch
+	ds *DropableStoreWithMetrics
+}
+
+func (b *batchWithMetrics) Put(key []byte, value []byte) error {
+	defer func(start time.Time) { atomic.AddInt64(&b.ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	return b.Batch.Put(key, value)
+}
+
+func (b *batchWithMetrics) Write() error {
+	defer func(start time.Time) { atomic.AddInt64(&b.ds.batchWriteDuration, int64(time.Since(start))) }(time.Now())
+	return b.Batch.Write()
+}
+
+type iteratorWithMetrics struct {
+	kvdb.Iterator
+	ds *DropableStoreWithMetrics
+	prefix []byte
+}
+
+func (b *iteratorWithMetrics) Next() bool {
+	defer func(start time.Time) { atomic.AddInt64(&b.ds.prefixReadDuration[prefixIndex(b.prefix)], int64(time.Since(start))) }(time.Now())
+	return b.Iterator.Next()
+}
+
+type snapshotWithMetrics struct {
+	kvdb.Snapshot
+	ds *DropableStoreWithMetrics
+}
+
+func (s *snapshotWithMetrics) Get(key []byte) ([]byte, error) {
+	defer func(start time.Time) { atomic.AddInt64(&s.ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	return s.Snapshot.Get(key)
+}
+
+func (s *snapshotWithMetrics) NewIterator(prefix []byte, start []byte) kvdb.Iterator {
+	defer func(start time.Time) { atomic.AddInt64(&s.ds.prefixReadDuration[prefixIndex(prefix)], int64(time.Since(start))) }(time.Now())
+	return &iteratorWithMetrics{s.ds.DropableStore.NewIterator(prefix, start), s.ds, prefix}
 }
 
 func (ds *DropableStoreWithMetrics) meter(refresh time.Duration) {
@@ -114,6 +302,8 @@ func (ds *DropableStoreWithMetrics) meter(refresh time.Duration) {
 		}
 		iostats[0], iostats[1] = nRead, nWrite
 
+		ds.markPrefixes()
+
 		// Sleep a bit, then repeat the stats collection
 		select {
 		case errc = <-ds.quitChan:
@@ -142,6 +332,8 @@ func (db *DBProducerWithMetrics) OpenDB(name string) (kvdb.DropableStore, error)
 	dm.log = logger
 	dm.diskReadMeter = metrics.GetOrRegisterMeter("opera/chaindata/"+name+"/disk/read", nil)
 	dm.diskWriteMeter = metrics.GetOrRegisterMeter("opera/chaindata/"+name+"/disk/write", nil)
+	dm.batchWriteGauge = metrics.GetOrRegisterGauge("opera/chaindata/"+name+"/prefix/batchwrite", nil)
+	dm.name = name
 
 	// Start up the metrics gathering and return
 	go dm.meter(metricsGatheringInterval)
