@@ -57,8 +57,8 @@ func New(itemsSemaphore *datasemaphore.DataSemaphore, cfg Config, callback Callb
 		}
 	}
 	f.callback = callback
-	f.inserter = workers.New(&f.wg, f.quit, cfg.MaxTasks)
-	f.checker = workers.New(&f.wg, f.quit, cfg.MaxTasks)
+	f.inserter = workers.New(&f.wg, f.quit, cfg.MaxTasks, "blockvotesinserter")
+	f.checker = workers.New(&f.wg, f.quit, cfg.MaxTasks, "blockvoteschecker")
 	return f
 }
 

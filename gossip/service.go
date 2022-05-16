@@ -194,7 +194,7 @@ func newService(config Config, store *Store, blockProc BlockProc, engine lachesi
 		Instance:           logger.New("gossip-service"),
 	}
 
-	svc.blockProcTasks = workers.New(new(sync.WaitGroup), svc.blockProcTasksDone, 1)
+	svc.blockProcTasks = workers.New(new(sync.WaitGroup), svc.blockProcTasksDone, 1, "blockproc")
 
 	// load epoch DB
 	svc.store.loadEpochStore(svc.store.GetEpoch())

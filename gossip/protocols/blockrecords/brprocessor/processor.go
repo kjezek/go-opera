@@ -47,7 +47,7 @@ func New(itemsSemaphore *datasemaphore.DataSemaphore, cfg Config, callback Callb
 		itemsSemaphore: itemsSemaphore,
 	}
 	f.callback = callback
-	f.inserter = workers.New(&f.wg, f.quit, cfg.MaxTasks)
+	f.inserter = workers.New(&f.wg, f.quit, cfg.MaxTasks, "blockrecordsproc")
 	return f
 }
 

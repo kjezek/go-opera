@@ -54,8 +54,8 @@ func New(itemsSemaphore *datasemaphore.DataSemaphore, cfg Config, callback Callb
 		callback:       callback,
 	}
 	f.callback = callback
-	f.inserter = workers.New(&f.wg, f.quit, cfg.MaxTasks)
-	f.checker = workers.New(&f.wg, f.quit, cfg.MaxTasks)
+	f.inserter = workers.New(&f.wg, f.quit, cfg.MaxTasks, "epochpackinserter")
+	f.checker = workers.New(&f.wg, f.quit, cfg.MaxTasks, "epochpackchecker")
 	return f
 }
 

@@ -49,3 +49,5 @@ require (
 replace github.com/ethereum/go-ethereum => github.com/hkalina/go-ethereum v1.9.7-0.20220420181000-8998b2a3f533
 
 replace github.com/dvyukov/go-fuzz => github.com/guzenok/go-fuzz v0.0.0-20210103140116-f9104dfb626f
+
+replace github.com/Fantom-foundation/lachesis-base => github.com/hkalina/lachesis-base v0.0.0-20220516123721-9493b676c19f
