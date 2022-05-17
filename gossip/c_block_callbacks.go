@@ -61,6 +61,11 @@ var (
 	_ = metrics.GetOrRegisterMeter("chain/reorg/add", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/drop", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/invalidTx", nil)
+
+	txsGasCounter = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
+	txsTimeCounter = metrics.GetOrRegisterCounter("chain/txs/proctime", nil)
+	dbTimeCounter = metrics.GetOrRegisterCounter("chain/txs/dbtime", nil)
+	hashTimeCounter = metrics.GetOrRegisterCounter("chain/txs/hashtime", nil)
 )
 
 type ExtendedTxPosition struct {
@@ -335,10 +340,14 @@ func consensusCallbackBeginBlockFn(
 					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates + statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
 					txsProcessingTime := time.Since(txsProcessingStart) - triehash - trieproc
 					executionExternalTimer.Update(txsProcessingTime)
+					txsTimeCounter.Inc(txsProcessingTime.Nanoseconds())
+					dbTimeCounter.Inc(trieproc.Nanoseconds())
+					hashTimeCounter.Inc(triehash.Nanoseconds())
 
 					block.SkippedTxs = skippedTxs
 					block.Root = hash.Hash(evmBlock.Root)
 					block.GasUsed = evmBlock.GasUsed
+					txsGasCounter.Inc(int64(block.GasUsed))
 
 					// memorize event position of each tx
 					txPositions := make(map[common.Hash]ExtendedTxPosition)
