@@ -62,10 +62,17 @@ var (
 	_ = metrics.GetOrRegisterMeter("chain/reorg/drop", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/invalidTx", nil)
 
-	txsGasCounter = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
-	txsTimeCounter = metrics.GetOrRegisterCounter("chain/txs/proctime", nil)
-	dbTimeCounter = metrics.GetOrRegisterCounter("chain/txs/dbtime", nil)
+	txsCounter  = metrics.GetOrRegisterCounter("chain/txs/count", nil)
+	txsEvmCounter  = metrics.GetOrRegisterCounter("chain/txs/evmcount", nil)
+	txsGasCounter  = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
+	evmTimeCounter = metrics.GetOrRegisterCounter("chain/txs/evmtime", nil)
+	dbTimeCounter  = metrics.GetOrRegisterCounter("chain/txs/dbtime", nil)
 	hashTimeCounter = metrics.GetOrRegisterCounter("chain/txs/hashtime", nil)
+	sstoreCountCounter = metrics.GetOrRegisterCounter("chain/txs/sstore/count", nil)
+	sstoreTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sstore/time", nil)
+	sloadCountCounter = metrics.GetOrRegisterCounter("chain/txs/sload/count", nil)
+	sloadTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sload/time", nil)
+	totalInstructionsCounter = metrics.GetOrRegisterCounter("chain/txs/instructions", nil)
 )
 
 type ExtendedTxPosition struct {
@@ -330,24 +337,46 @@ func consensusCallbackBeginBlockFn(
 					for _, e := range blockEvents {
 						txs = append(txs, e.Txs()...)
 					}
+
+					// store metrics before-state
+					triehashbefore := statedb.AccountHashes + statedb.StorageHashes
+					trieprocbefore := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates +
+						statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates +
+						statedb.SnapshotCommits + statedb.AccountCommits + statedb.StorageCommits
+					sstoreCountBefore := statedb.SStoreCount
+					sstoreTimeBefore := statedb.SStoreTime
+					sloadCountBefore := statedb.SLoadCount
+					sloadTimeBefore := statedb.SLoadTime
+					totalInstructionsBefore := statedb.TotalInstructions
+					txsEvmBefore := statedb.EvmTxs
 					txsProcessingStart := time.Now()
 
 					_ = evmProcessor.Execute(txs)
 
 					evmBlock, skippedTxs, allReceipts := evmProcessor.Finalize()
 
-					triehash := statedb.AccountHashes + statedb.StorageHashes
-					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates + statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
-					txsProcessingTime := time.Since(txsProcessingStart) - triehash - trieproc
+					// mark metrics
+					txsProcessingTime := time.Since(txsProcessingStart)
+					triehash := statedb.AccountHashes + statedb.StorageHashes - triehashbefore
+					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates +
+						statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates +
+						statedb.SnapshotCommits + statedb.AccountCommits + statedb.StorageCommits - trieprocbefore
 					executionExternalTimer.Update(txsProcessingTime)
-					txsTimeCounter.Inc(txsProcessingTime.Nanoseconds())
+					evmTimeCounter.Inc(txsProcessingTime.Nanoseconds())
 					dbTimeCounter.Inc(trieproc.Nanoseconds())
 					hashTimeCounter.Inc(triehash.Nanoseconds())
+					sstoreCountCounter.Inc(statedb.SStoreCount - sstoreCountBefore)
+					sstoreTimeCounter.Inc((statedb.SStoreTime - sstoreTimeBefore).Nanoseconds())
+					sloadCountCounter.Inc(statedb.SLoadCount - sloadCountBefore)
+					sloadTimeCounter.Inc((statedb.SLoadTime - sloadTimeBefore).Nanoseconds())
+					totalInstructionsCounter.Inc(statedb.TotalInstructions - totalInstructionsBefore)
+					txsGasCounter.Inc(int64(evmBlock.GasUsed))
+					txsCounter.Inc(int64(len(txs)))
+					txsEvmCounter.Inc(statedb.EvmTxs - txsEvmBefore)
 
 					block.SkippedTxs = skippedTxs
 					block.Root = hash.Hash(evmBlock.Root)
 					block.GasUsed = evmBlock.GasUsed
-					txsGasCounter.Inc(int64(block.GasUsed))
 
 					// memorize event position of each tx
 					txPositions := make(map[common.Hash]ExtendedTxPosition)
