@@ -3,6 +3,7 @@ package gossip
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/metrics"
 	"math"
 	"math/rand"
 	"sync"
@@ -59,6 +60,13 @@ const (
 	// txChanSize is the size of channel listening to NewTxsNotify.
 	// The number is referenced from the size of tx pool.
 	txChanSize = 4096
+)
+
+var (
+	peerIdleCounter = metrics.GetOrRegisterCounter("lachesis/peer/idle", nil)
+	peerWorkedCounter = metrics.GetOrRegisterCounter("lachesis/peer/worked", nil)
+	peerIdleTimer = metrics.GetOrRegisterTimer("lachesis/peer/idletimer", nil)
+	peerWorkedTimer = metrics.GetOrRegisterTimer("lachesis/peer/workedtimer", nil)
 )
 
 func errResp(code errCode, format string, v ...interface{}) error {
@@ -950,10 +958,20 @@ func (h *handler) handleEvents(p *peer, events dag.Events, ordered bool) {
 // peer. The remote connection is torn down upon returning any error.
 func (h *handler) handleMsg(p *peer) error {
 	// Read the next message from the remote peer, and ensure it's fully consumed
+	waitingStart := time.Now()
 	msg, err := p.rw.ReadMsg()
+	waitingTime := time.Since(waitingStart)
+	peerIdleCounter.Inc(waitingTime.Nanoseconds())
+	peerIdleTimer.Update(waitingTime)
 	if err != nil {
 		return err
 	}
+	defer func(start time.Time) {
+		workedTime := time.Since(start)
+		peerWorkedCounter.Inc(workedTime.Nanoseconds())
+		peerWorkedTimer.Update(workedTime)
+	}(time.Now())
+
 	if msg.Size > protocolMaxMsgSize {
 		return errResp(ErrMsgTooLarge, "%v > %v", msg.Size, protocolMaxMsgSize)
 	}
