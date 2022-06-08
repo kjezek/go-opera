@@ -73,6 +73,11 @@ var (
 	sloadCountCounter = metrics.GetOrRegisterCounter("chain/txs/sload/count", nil)
 	sloadTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sload/time", nil)
 	totalInstructionsCounter = metrics.GetOrRegisterCounter("chain/txs/instructions", nil)
+
+	waitingBlockProcCounter   = metrics.GetOrRegisterCounter("lachesis/worker/daginserter/waitingblockproc", nil)
+	preInternalCounter  = metrics.GetOrRegisterCounter("chain/txs/preinternal", nil)
+	postInternalCounter  = metrics.GetOrRegisterCounter("chain/txs/postinternal", nil)
+	sealingCounter  = metrics.GetOrRegisterCounter("chain/txs/sealing", nil)
 )
 
 type ExtendedTxPosition struct {
@@ -111,7 +116,9 @@ func consensusCallbackBeginBlockFn(
 	verWatcher *verwatcher.VerWarcher,
 ) lachesis.BeginBlockFn {
 	return func(cBlock *lachesis.Block) lachesis.BlockCallbacks {
+		waitingStart := time.Now()
 		wg.Wait()
+		waitingBlockProcCounter.Inc(time.Since(waitingStart).Nanoseconds())
 		start := time.Now()
 
 		// Note: take copies to avoid race conditions with API calls
@@ -283,6 +290,7 @@ func consensusCallbackBeginBlockFn(
 				beforeExecutionTimer.Update(substart.Sub(start)) // from block processing start to EVM init
 
 				// Execute pre-internal transactions
+				preInternalStart := time.Now()
 				preInternalTxs := blockProc.PreTxTransactor.PopInternalTxs(blockCtx, bs, es, sealing, statedb)
 				preInternalReceipts := evmProcessor.Execute(preInternalTxs)
 				bs = txListener.Finalize()
@@ -291,9 +299,11 @@ func consensusCallbackBeginBlockFn(
 						log.Warn("Pre-internal transaction reverted", "txid", r.TxHash.String())
 					}
 				}
+				preInternalCounter.Inc(time.Since(preInternalStart).Nanoseconds())
 
 				// Seal epoch if requested
 				if sealing {
+					sealingStart := time.Now()
 					sealer.Update(bs, es)
 					prevUpg := es.Rules.Upgrades
 					bs, es = sealer.SealEpoch() // TODO: refactor to not mutate the bs, it is unclear
@@ -306,11 +316,13 @@ func consensusCallbackBeginBlockFn(
 					store.SetBlockEpochState(bs, es)
 					newValidators = es.Validators
 					txListener.Update(bs, es)
+					sealingCounter.Inc(time.Since(sealingStart).Nanoseconds())
 				}
 
 				// At this point, newValidators may be returned and the rest of the code may be executed in a parallel thread
 				blockFn := func() {
 					// Execute post-internal transactions
+					postInternalStart := time.Now()
 					internalTxs := blockProc.PostTxTransactor.PopInternalTxs(blockCtx, bs, es, sealing, statedb)
 					internalReceipts := evmProcessor.Execute(internalTxs)
 					for _, r := range internalReceipts {
@@ -318,6 +330,7 @@ func consensusCallbackBeginBlockFn(
 							log.Warn("Internal transaction reverted", "txid", r.TxHash.String())
 						}
 					}
+					postInternalCounter.Inc(time.Since(postInternalStart).Nanoseconds())
 
 					// sort events by Lamport time
 					sort.Sort(confirmedEvents)
