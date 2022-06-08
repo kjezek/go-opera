@@ -3,8 +3,10 @@ package heavycheck
 import (
 	"bytes"
 	"errors"
+	"github.com/ethereum/go-ethereum/metrics"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/Fantom-foundation/lachesis-base/hash"
 	"github.com/Fantom-foundation/lachesis-base/inter/idx"
@@ -54,6 +56,9 @@ type Checker struct {
 	tasksQ chan *taskData
 	quit   chan struct{}
 	wg     sync.WaitGroup
+
+	idleCounter   metrics.Counter
+	workedCounter metrics.Counter
 }
 
 type taskData struct {
@@ -81,6 +86,9 @@ func New(config Config, reader Reader, txSigner types.Signer) *Checker {
 		reader:   reader,
 		tasksQ:   make(chan *taskData, config.MaxQueuedTasks),
 		quit:     make(chan struct{}),
+
+		idleCounter:   metrics.GetOrRegisterCounter("lachesis/worker/heavycheck/idle", nil),
+		workedCounter: metrics.GetOrRegisterCounter("lachesis/worker/heavycheck/worked", nil),
 	}
 }
 
@@ -295,9 +303,12 @@ func (v *Checker) ValidateEvent(e inter.EventPayloadI) error {
 
 func (v *Checker) loop() {
 	defer v.wg.Done()
+	tm := time.Now()
 	for {
 		select {
 		case op := <-v.tasksQ:
+			v.idleCounter.Inc(time.Since(tm).Nanoseconds())
+			tm = time.Now()
 			if op.event != nil {
 				op.onValidated(v.ValidateEvent(op.event))
 			} else if op.bvs != nil {
@@ -305,8 +316,11 @@ func (v *Checker) loop() {
 			} else {
 				op.onValidated(v.ValidateEV(*op.ev))
 			}
+			v.workedCounter.Inc(time.Since(tm).Nanoseconds())
+			tm = time.Now()
 
 		case <-v.quit:
+			v.idleCounter.Inc(time.Since(tm).Nanoseconds())
 			return
 		}
 	}
