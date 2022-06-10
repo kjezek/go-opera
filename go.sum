@@ -227,6 +227,8 @@ github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d h1:dg1dEPuW
 github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
 github.com/hkalina/go-ethereum v1.9.7-0.20220601113552-34ae67a6e038 h1:aWAxaWZ7XYlJezCjHYT6uTuBCmufPNQn5jKEgm2+JU4=
 github.com/hkalina/go-ethereum v1.9.7-0.20220601113552-34ae67a6e038/go.mod h1:IeQDjWCNBj/QiWIPosfF6/kRC6pHPNs7W7LfBzjj+P4=
+github.com/hkalina/go-ethereum v1.9.7-0.20220610081554-64d409b8b4c2 h1:txC73x9r1ubfGA0acyDX7WyY5hgmh8cFPAuecVtdFdo=
+github.com/hkalina/go-ethereum v1.9.7-0.20220610081554-64d409b8b4c2/go.mod h1:IeQDjWCNBj/QiWIPosfF6/kRC6pHPNs7W7LfBzjj+P4=
 github.com/hkalina/lachesis-base v0.0.0-20220516123721-9493b676c19f h1:DthmG86Pt9zbNlTRM+yUw8Bzm2jwCG3Au0y2q3eIlUw=
 github.com/hkalina/lachesis-base v0.0.0-20220516123721-9493b676c19f/go.mod h1:E6+2LOvgADwSOv0U5YXhRJz4PlX8qJxvq8M93AOC1tM=
 github.com/hkalina/lachesis-base v0.0.0-20220603130637-8a5678c91cf6 h1:WwsI5xcWTptsQCziDDCt5Ve8V7nP92/GQPEca8h9wTY=
