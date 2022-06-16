@@ -2,6 +2,7 @@ package gossip
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/state"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -286,8 +287,8 @@ func consensusCallbackBeginBlockFn(
 				}
 
 				evmProcessor := blockProc.EVMModule.Start(blockCtx, statedb, evmStateReader, onNewLogAll, es.Rules, evmCfg, es.Rules.EvmChainConfig(store.GetUpgradeHeights()))
-				substart := time.Now()
-				beforeExecutionTimer.Update(substart.Sub(start)) // from block processing start to EVM init
+				executionStart := time.Now()
+				beforeExecutionTimer.Update(executionStart.Sub(start)) // from block processing start to EVM init
 
 				// Execute pre-internal transactions
 				preInternalStart := time.Now()
@@ -352,10 +353,8 @@ func consensusCallbackBeginBlockFn(
 					}
 
 					// store metrics before-state
-					triehashbefore := statedb.AccountHashes + statedb.StorageHashes
-					trieprocbefore := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates +
-						statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates +
-						statedb.SnapshotCommits + statedb.AccountCommits + statedb.StorageCommits
+					triehashBeforeExternalTxs := statedb.AccountHashes + statedb.StorageHashes
+					trieprocBeforeExternalTxs := getTrieProc(statedb)
 					sstoreCountBefore := statedb.SStoreCount
 					sstoreTimeBefore := statedb.SStoreTime
 					sloadCountBefore := statedb.SLoadCount
@@ -370,14 +369,12 @@ func consensusCallbackBeginBlockFn(
 
 					// mark metrics
 					txsProcessingTime := time.Since(txsProcessingStart)
-					triehash := statedb.AccountHashes + statedb.StorageHashes - triehashbefore
-					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates +
-						statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates +
-						statedb.SnapshotCommits + statedb.AccountCommits + statedb.StorageCommits - trieprocbefore
+					triehashExternalTxs := statedb.AccountHashes + statedb.StorageHashes - triehashBeforeExternalTxs
+					trieprocExternalTxs := getTrieProc(statedb) - trieprocBeforeExternalTxs
 					executionExternalTimer.Update(txsProcessingTime)
 					evmTimeCounter.Inc(txsProcessingTime.Nanoseconds())
-					dbTimeCounter.Inc(trieproc.Nanoseconds())
-					hashTimeCounter.Inc(triehash.Nanoseconds())
+					dbTimeCounter.Inc(trieprocExternalTxs.Nanoseconds())
+					hashTimeCounter.Inc(triehashExternalTxs.Nanoseconds())
 					sstoreCountCounter.Inc(statedb.SStoreCount - sstoreCountBefore)
 					sstoreTimeCounter.Inc((statedb.SStoreTime - sstoreTimeBefore).Nanoseconds())
 					sloadCountCounter.Inc(statedb.SLoadCount - sloadCountBefore)
@@ -469,9 +466,9 @@ func consensusCallbackBeginBlockFn(
 					storageUpdateTimer.Update(statedb.StorageUpdates)
 					snapshotAccountReadTimer.Update(statedb.SnapshotAccountReads)
 					snapshotStorageReadTimer.Update(statedb.SnapshotStorageReads)
-					triehash = statedb.AccountHashes + statedb.StorageHashes
-					trieproc = statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates + statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
-					blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash - txsProcessingTime)
+					triehashAll := statedb.AccountHashes + statedb.StorageHashes
+					trieprocAll := getTrieProc(statedb)
+					blockExecutionTimer.Update(time.Since(executionStart) - trieprocAll - triehashAll)
 					// Update the metrics touched during block validation
 					accountHashTimer.Update(statedb.AccountHashes)
 					storageHashTimer.Update(statedb.StorageHashes)
@@ -527,6 +524,12 @@ func consensusCallbackBeginBlockFn(
 			},
 		}
 	}
+}
+
+func getTrieProc(statedb *state.StateDB) time.Duration {
+	return statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates +
+		statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates +
+		statedb.SnapshotCommits + statedb.AccountCommits + statedb.StorageCommits
 }
 
 // spillBlockEvents excludes first events which exceed MaxBlockGas
