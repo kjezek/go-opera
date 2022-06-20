@@ -235,6 +235,8 @@ github.com/hkalina/lachesis-base v0.0.0-20220603130637-8a5678c91cf6 h1:WwsI5xcWT
 github.com/hkalina/lachesis-base v0.0.0-20220603130637-8a5678c91cf6/go.mod h1:E6+2LOvgADwSOv0U5YXhRJz4PlX8qJxvq8M93AOC1tM=
 github.com/hkalina/lachesis-base v0.0.0-20220606174545-9cdeab743e00 h1:9SEZNDOJe6DxIa+OrPAI1L4pIT59Mam6h9SWyaTJ6Cg=
 github.com/hkalina/lachesis-base v0.0.0-20220606174545-9cdeab743e00/go.mod h1:E6+2LOvgADwSOv0U5YXhRJz4PlX8qJxvq8M93AOC1tM=
+github.com/hkalina/lachesis-base v0.0.0-20220620123535-01569740d42d h1:er4Cuib5We0V8Yr18AsJepawvK+tSkCwxkQmSiXOKkY=
+github.com/hkalina/lachesis-base v0.0.0-20220620123535-01569740d42d/go.mod h1:E6+2LOvgADwSOv0U5YXhRJz4PlX8qJxvq8M93AOC1tM=
 github.com/holiman/bloomfilter/v2 v2.0.3 h1:73e0e/V0tCydx14a0SCYS/EWCxgwLZ18CZcZKVu0fao=
 github.com/holiman/bloomfilter/v2 v2.0.3/go.mod h1:zpoh+gs7qcpqrHr3dB55AMiJwo0iURXE7ZOP9L9hSkA=
 github.com/holiman/uint256 v1.2.0 h1:gpSYcPLWGv4sG43I2mVLiDZCNDh/EpGjSk8tmtxitHM=
