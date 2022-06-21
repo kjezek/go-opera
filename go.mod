@@ -7,6 +7,7 @@ require (
 	github.com/allegro/bigcache v1.2.1 // indirect
 	github.com/certifi/gocertifi v0.0.0-20191021191039-0944d244cd40 // indirect
 	github.com/cespare/cp v1.1.1
+	github.com/cockroachdb/pebble v0.0.0-20220524133354-f30672e7240b
 	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deckarep/golang-set v1.7.1
@@ -45,6 +46,7 @@ require (
 	gopkg.in/urfave/cli.v1 v1.20.0
 )
 
-replace github.com/ethereum/go-ethereum => github.com/Fantom-foundation/go-ethereum v1.10.8-ftm-rc4
+// v1.10.8-ftm-rc4-rpc-timeout
+replace github.com/ethereum/go-ethereum => github.com/hkalina/go-ethereum v1.9.7-0.20220420181000-8998b2a3f533
 
 replace github.com/dvyukov/go-fuzz => github.com/guzenok/go-fuzz v0.0.0-20210103140116-f9104dfb626f
