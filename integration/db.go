@@ -1,9 +1,13 @@
 package integration
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"runtime/debug"
+	"runtime/trace"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -181,6 +185,11 @@ func (ds *DropableStoreWithMetrics) Stat(property string) (string, error) {
 
 func (ds *DropableStoreWithMetrics) Put(key []byte, value []byte) error {
 	defer func(start time.Time) { atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	if bytes.HasPrefix(key, []byte{'L'}) {
+		ctx, task := trace.NewTask(context.Background(), "PutEvmLog")
+		trace.Log(ctx, "PutEvmLogStack", string(debug.Stack()))
+		defer task.End()
+	}
 	return ds.DropableStore.Put(key, value)
 }
 
@@ -223,6 +232,11 @@ type batchWithMetrics struct {
 
 func (b *batchWithMetrics) Put(key []byte, value []byte) error {
 	defer func(start time.Time) { atomic.AddInt64(&b.ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	if bytes.HasPrefix(key, []byte{'L'}) {
+		ctx, task := trace.NewTask(context.Background(), "PutEvmLog")
+		trace.Log(ctx, "PutEvmLogStack", string(debug.Stack()))
+		defer task.End()
+	}
 	return b.Batch.Put(key, value)
 }
 
