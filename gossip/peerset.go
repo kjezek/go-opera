@@ -18,7 +18,9 @@ package gossip
 
 import (
 	"errors"
+	"github.com/Fantom-foundation/lachesis-base/inter/idx"
 	"sync"
+	"time"
 
 	"github.com/Fantom-foundation/lachesis-base/hash"
 	"github.com/ethereum/go-ethereum/common"
@@ -207,6 +209,32 @@ func (ps *peerSet) PeersWithoutTx(hash common.Hash) []*peer {
 		}
 	}
 	return list
+}
+
+func (ps *peerSet) PeersSendingEvents(maxDuration time.Duration) int64 {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	amount := int64(0)
+	for _, p := range ps.peers {
+		if time.Since(p.lastReceivedEvent) <= maxDuration {
+			amount++
+		}
+	}
+	return amount
+}
+
+func (ps *peerSet) PeersSyncedAtLeast(minBlock idx.Block) int64 {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	amount := int64(0)
+	for _, p := range ps.peers {
+		if p.progress.LastBlockIdx >= minBlock {
+			amount++
+		}
+	}
+	return amount
 }
 
 // List returns array of peers in the set.

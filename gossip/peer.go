@@ -62,6 +62,7 @@ type peer struct {
 	term                chan struct{} // Termination channel to stop the broadcaster
 
 	progress PeerProgress
+	lastReceivedEvent time.Time
 
 	snapExt  *snapPeer     // Satellite `snap` connection
 	syncDrop *time.Timer   // Connection dropper if `eth` sync progress isn't validated in time
@@ -75,6 +76,13 @@ func (p *peer) SetProgress(x PeerProgress) {
 	defer p.Unlock()
 
 	p.progress = x
+}
+
+func (p *peer) MarkReceivedEvent() {
+	p.Lock()
+	defer p.Unlock()
+
+	p.lastReceivedEvent = time.Now()
 }
 
 func (p *peer) InterestedIn(h hash.Event) bool {

@@ -3,9 +3,11 @@ package gossip
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/metrics"
 	"math"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Fantom-foundation/lachesis-base/gossip/dagprocessor"
@@ -59,6 +61,17 @@ const (
 	// txChanSize is the size of channel listening to NewTxsNotify.
 	// The number is referenced from the size of tx pool.
 	txChanSize = 4096
+)
+
+var (
+	peerIdleCounter = metrics.GetOrRegisterCounter("lachesis/peer/idle", nil)
+	peerWorkedCounter = metrics.GetOrRegisterCounter("lachesis/peer/worked", nil)
+	peerIdleTimer = metrics.GetOrRegisterTimer("lachesis/peer/idletimer", nil)
+	peerWorkedTimer = metrics.GetOrRegisterTimer("lachesis/peer/workedtimer", nil)
+	peersSyncedGauge = metrics.GetOrRegisterGauge("p2p/peers/synced", nil)
+	peersMoreSyncedGauge = metrics.GetOrRegisterGauge("p2p/peers/moresynced", nil)
+	peersSendingGauge = metrics.GetOrRegisterGauge("p2p/peers/sending", nil)
+	lastMetricsUpdate = int64(0)
 )
 
 func errResp(code errCode, format string, v ...interface{}) error {
@@ -761,6 +774,17 @@ func (h *handler) highestPeerProgress() PeerProgress {
 	return max
 }
 
+func (h *handler) updateMetrics() {
+	if atomic.LoadInt64(&lastMetricsUpdate) < time.Now().Add(-5 * time.Second).Unix() {
+		atomic.StoreInt64(&lastMetricsUpdate, time.Now().Unix())
+		myBlock := h.store.GetBlockState().LastBlock.Idx
+		maxBlock := h.highestPeerProgress().LastBlockIdx
+		peersSyncedGauge.Update(h.peers.PeersSyncedAtLeast(maxBlock - 100))
+		peersMoreSyncedGauge.Update(h.peers.PeersSyncedAtLeast(myBlock))
+		peersSendingGauge.Update(h.peers.PeersSendingEvents(20 * time.Minute))
+	}
+}
+
 // handle is the callback invoked to manage the life cycle of a peer. When
 // this function terminates, the peer is disconnected.
 func (h *handler) handle(p *peer) error {
@@ -943,6 +967,7 @@ func (h *handler) handleEvents(p *peer, events dag.Events, ordered bool) {
 	notifyAnnounces := func(ids hash.Events) {
 		_ = h.dagFetcher.NotifyAnnounces(peer.id, eventIDsToInterfaces(ids), now, requestEvents)
 	}
+	p.MarkReceivedEvent()
 	_ = h.dagProcessor.Enqueue(peer.id, notTooHigh, ordered, notifyAnnounces, nil)
 }
 
@@ -950,10 +975,20 @@ func (h *handler) handleEvents(p *peer, events dag.Events, ordered bool) {
 // peer. The remote connection is torn down upon returning any error.
 func (h *handler) handleMsg(p *peer) error {
 	// Read the next message from the remote peer, and ensure it's fully consumed
+	waitingStart := time.Now()
 	msg, err := p.rw.ReadMsg()
+	waitingTime := time.Since(waitingStart)
+	peerIdleCounter.Inc(waitingTime.Nanoseconds())
+	peerIdleTimer.Update(waitingTime)
 	if err != nil {
 		return err
 	}
+	defer func(start time.Time) {
+		workedTime := time.Since(start)
+		peerWorkedCounter.Inc(workedTime.Nanoseconds())
+		peerWorkedTimer.Update(workedTime)
+	}(time.Now())
+
 	if msg.Size > protocolMaxMsgSize {
 		return errResp(ErrMsgTooLarge, "%v > %v", msg.Size, protocolMaxMsgSize)
 	}
@@ -986,6 +1021,7 @@ func (h *handler) handleMsg(p *peer) error {
 		if progress.Epoch == myEpoch {
 			h.syncStatus.MarkMaybeSynced()
 		}
+		h.updateMetrics()
 
 	case msg.Code == EvmTxsMsg:
 		// Transactions arrived, make sure we have a valid and fresh graph to handle them

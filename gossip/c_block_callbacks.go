@@ -2,6 +2,7 @@ package gossip
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/state"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -51,14 +52,33 @@ var (
 	snapshotCommitTimer      = metrics.GetOrRegisterTimer("chain/snapshot/commits", nil)
 
 	blockInsertTimer     = metrics.GetOrRegisterTimer("chain/inserts", nil)
-	blockValidationTimer = metrics.GetOrRegisterTimer("chain/validation", nil)
 	blockExecutionTimer  = metrics.GetOrRegisterTimer("chain/execution", nil)
 	blockWriteTimer      = metrics.GetOrRegisterTimer("chain/write", nil)
+
+	executionExternalTimer  = metrics.GetOrRegisterTimer("chain/execution/external", nil)
+	beforeExecutionTimer  = metrics.GetOrRegisterTimer("chain/before/execute", nil)
 
 	_ = metrics.GetOrRegisterMeter("chain/reorg/executes", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/add", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/drop", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/invalidTx", nil)
+
+	txsCounter  = metrics.GetOrRegisterCounter("chain/txs/count", nil)
+	txsEvmCounter  = metrics.GetOrRegisterCounter("chain/txs/evmcount", nil)
+	txsGasCounter  = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
+	evmTimeCounter = metrics.GetOrRegisterCounter("chain/txs/evmtime", nil)
+	dbTimeCounter  = metrics.GetOrRegisterCounter("chain/txs/dbtime", nil)
+	hashTimeCounter = metrics.GetOrRegisterCounter("chain/txs/hashtime", nil)
+	sstoreCountCounter = metrics.GetOrRegisterCounter("chain/txs/sstore/count", nil)
+	sstoreTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sstore/time", nil)
+	sloadCountCounter = metrics.GetOrRegisterCounter("chain/txs/sload/count", nil)
+	sloadTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sload/time", nil)
+	totalInstructionsCounter = metrics.GetOrRegisterCounter("chain/txs/instructions", nil)
+
+	waitingBlockProcCounter   = metrics.GetOrRegisterCounter("lachesis/worker/daginserter/waitingblockproc", nil)
+	preInternalCounter  = metrics.GetOrRegisterCounter("chain/txs/preinternal", nil)
+	postInternalCounter  = metrics.GetOrRegisterCounter("chain/txs/postinternal", nil)
+	sealingCounter  = metrics.GetOrRegisterCounter("chain/txs/sealing", nil)
 )
 
 type ExtendedTxPosition struct {
@@ -97,7 +117,9 @@ func consensusCallbackBeginBlockFn(
 	verWatcher *verwatcher.VerWarcher,
 ) lachesis.BeginBlockFn {
 	return func(cBlock *lachesis.Block) lachesis.BlockCallbacks {
+		waitingStart := time.Now()
 		wg.Wait()
+		waitingBlockProcCounter.Inc(time.Since(waitingStart).Nanoseconds())
 		start := time.Now()
 
 		// Note: take copies to avoid race conditions with API calls
@@ -265,9 +287,11 @@ func consensusCallbackBeginBlockFn(
 				}
 
 				evmProcessor := blockProc.EVMModule.Start(blockCtx, statedb, evmStateReader, onNewLogAll, es.Rules, evmCfg, es.Rules.EvmChainConfig(store.GetUpgradeHeights()))
-				substart := time.Now()
+				executionStart := time.Now()
+				beforeExecutionTimer.Update(executionStart.Sub(start)) // from block processing start to EVM init
 
 				// Execute pre-internal transactions
+				preInternalStart := time.Now()
 				preInternalTxs := blockProc.PreTxTransactor.PopInternalTxs(blockCtx, bs, es, sealing, statedb)
 				preInternalReceipts := evmProcessor.Execute(preInternalTxs)
 				bs = txListener.Finalize()
@@ -276,9 +300,11 @@ func consensusCallbackBeginBlockFn(
 						log.Warn("Pre-internal transaction reverted", "txid", r.TxHash.String())
 					}
 				}
+				preInternalCounter.Inc(time.Since(preInternalStart).Nanoseconds())
 
 				// Seal epoch if requested
 				if sealing {
+					sealingStart := time.Now()
 					sealer.Update(bs, es)
 					prevUpg := es.Rules.Upgrades
 					bs, es = sealer.SealEpoch() // TODO: refactor to not mutate the bs, it is unclear
@@ -291,11 +317,13 @@ func consensusCallbackBeginBlockFn(
 					store.SetBlockEpochState(bs, es)
 					newValidators = es.Validators
 					txListener.Update(bs, es)
+					sealingCounter.Inc(time.Since(sealingStart).Nanoseconds())
 				}
 
 				// At this point, newValidators may be returned and the rest of the code may be executed in a parallel thread
 				blockFn := func() {
 					// Execute post-internal transactions
+					postInternalStart := time.Now()
 					internalTxs := blockProc.PostTxTransactor.PopInternalTxs(blockCtx, bs, es, sealing, statedb)
 					internalReceipts := evmProcessor.Execute(internalTxs)
 					for _, r := range internalReceipts {
@@ -303,6 +331,7 @@ func consensusCallbackBeginBlockFn(
 							log.Warn("Internal transaction reverted", "txid", r.TxHash.String())
 						}
 					}
+					postInternalCounter.Inc(time.Since(postInternalStart).Nanoseconds())
 
 					// sort events by Lamport time
 					sort.Sort(confirmedEvents)
@@ -323,9 +352,38 @@ func consensusCallbackBeginBlockFn(
 						txs = append(txs, e.Txs()...)
 					}
 
+					// store metrics before-state
+					triehashBeforeExternalTxs := statedb.AccountHashes + statedb.StorageHashes
+					trieprocBeforeExternalTxs := getTrieProc(statedb)
+					sstoreCountBefore := statedb.SStoreCount
+					sstoreTimeBefore := statedb.SStoreTime
+					sloadCountBefore := statedb.SLoadCount
+					sloadTimeBefore := statedb.SLoadTime
+					totalInstructionsBefore := statedb.TotalInstructions
+					txsEvmBefore := statedb.EvmTxs
+					txsProcessingStart := time.Now()
+
 					_ = evmProcessor.Execute(txs)
 
 					evmBlock, skippedTxs, allReceipts := evmProcessor.Finalize()
+
+					// mark metrics
+					txsProcessingTime := time.Since(txsProcessingStart)
+					triehashExternalTxs := statedb.AccountHashes + statedb.StorageHashes - triehashBeforeExternalTxs
+					trieprocExternalTxs := getTrieProc(statedb) - trieprocBeforeExternalTxs
+					executionExternalTimer.Update(txsProcessingTime)
+					evmTimeCounter.Inc(txsProcessingTime.Nanoseconds())
+					dbTimeCounter.Inc(trieprocExternalTxs.Nanoseconds())
+					hashTimeCounter.Inc(triehashExternalTxs.Nanoseconds())
+					sstoreCountCounter.Inc(statedb.SStoreCount - sstoreCountBefore)
+					sstoreTimeCounter.Inc((statedb.SStoreTime - sstoreTimeBefore).Nanoseconds())
+					sloadCountCounter.Inc(statedb.SLoadCount - sloadCountBefore)
+					sloadTimeCounter.Inc((statedb.SLoadTime - sloadTimeBefore).Nanoseconds())
+					totalInstructionsCounter.Inc(statedb.TotalInstructions - totalInstructionsBefore)
+					txsGasCounter.Inc(int64(evmBlock.GasUsed))
+					txsCounter.Inc(int64(len(txs)))
+					txsEvmCounter.Inc(statedb.EvmTxs - txsEvmBefore)
+
 					block.SkippedTxs = skippedTxs
 					block.Root = hash.Hash(evmBlock.Root)
 					block.GasUsed = evmBlock.GasUsed
@@ -408,18 +466,19 @@ func consensusCallbackBeginBlockFn(
 					storageUpdateTimer.Update(statedb.StorageUpdates)
 					snapshotAccountReadTimer.Update(statedb.SnapshotAccountReads)
 					snapshotStorageReadTimer.Update(statedb.SnapshotStorageReads)
-					triehash := statedb.AccountHashes + statedb.StorageHashes // save to not double count in validation
-					trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates
-					trieproc += statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
-					blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash)
+					triehashAll := statedb.AccountHashes + statedb.StorageHashes
+					trieprocAll := getTrieProc(statedb)
+					blockExecutionTimer.Update(time.Since(executionStart) - trieprocAll - triehashAll)
 					// Update the metrics touched during block validation
 					accountHashTimer.Update(statedb.AccountHashes)
 					storageHashTimer.Update(statedb.StorageHashes)
-					blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
 					// Update the metrics touched by new block
 					headBlockGauge.Update(int64(blockCtx.Idx))
 					headHeaderGauge.Update(int64(blockCtx.Idx))
 					headFastBlockGauge.Update(int64(blockCtx.Idx))
+					// Measure the commit section
+					commitStart := time.Now()
+					commitsSumBefore := statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits
 
 					// Notify about new block
 					if feed != nil {
@@ -438,7 +497,7 @@ func consensusCallbackBeginBlockFn(
 					accountCommitTimer.Update(statedb.AccountCommits)
 					storageCommitTimer.Update(statedb.StorageCommits)
 					snapshotCommitTimer.Update(statedb.SnapshotCommits)
-					blockWriteTimer.Update(time.Since(substart) - statedb.AccountCommits - statedb.StorageCommits - statedb.SnapshotCommits)
+					blockWriteTimer.Update(time.Since(commitStart) - (statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits - commitsSumBefore))
 					blockInsertTimer.UpdateSince(start)
 
 					now := time.Now()
@@ -465,6 +524,12 @@ func consensusCallbackBeginBlockFn(
 			},
 		}
 	}
+}
+
+func getTrieProc(statedb *state.StateDB) time.Duration {
+	return statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates +
+		statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates +
+		statedb.SnapshotCommits + statedb.AccountCommits + statedb.StorageCommits
 }
 
 // spillBlockEvents excludes first events which exceed MaxBlockGas
