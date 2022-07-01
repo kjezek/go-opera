@@ -169,7 +169,10 @@ func (s *Service) PauseEvmSnapshot() {
 }
 
 func (s *Service) EvmSnapshotGeneration() bool {
-	gen, _ := s.store.evm.Snaps.Generating()
+	gen := s.config.AllowSnapshot
+	if gen {
+		gen, _ = s.store.evm.Snaps.Generating()
+	}
 	return gen
 }
 
