@@ -335,7 +335,7 @@ func gossipStoreConfigWithFlags(ctx *cli.Context, src gossip.StoreConfig) (gossi
 		}
 		cfg.EVM.Cache.TrieDirtyDisabled = ctx.GlobalString(utils.GCModeFlag.Name) == "archive"
 	}
-	cfg.AllowPrefetch = ctx.Bool(utils.SnapshotFlag.Name)
+	cfg.AllowPrefetch = ctx.GlobalBool(TriePrefetchFlag.Name)
 	return cfg, nil
 }
 
