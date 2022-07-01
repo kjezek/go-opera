@@ -318,6 +318,8 @@ func gossipConfigWithFlags(ctx *cli.Context, src gossip.Config) (gossip.Config, 
 		cfg.AllowSnapsync = ctx.GlobalString(SyncModeFlag.Name) == "snap"
 	}
 
+	cfg.AllowSnapshot = ctx.Bool(utils.SnapshotFlag.Name)
+
 	return cfg, nil
 }
 

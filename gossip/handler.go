@@ -64,14 +64,14 @@ const (
 )
 
 var (
-	peerIdleCounter = metrics.GetOrRegisterCounter("lachesis/peer/idle", nil)
-	peerWorkedCounter = metrics.GetOrRegisterCounter("lachesis/peer/worked", nil)
-	peerIdleTimer = metrics.GetOrRegisterTimer("lachesis/peer/idletimer", nil)
-	peerWorkedTimer = metrics.GetOrRegisterTimer("lachesis/peer/workedtimer", nil)
-	peersSyncedGauge = metrics.GetOrRegisterGauge("p2p/peers/synced", nil)
+	peerIdleCounter      = metrics.GetOrRegisterCounter("lachesis/peer/idle", nil)
+	peerWorkedCounter    = metrics.GetOrRegisterCounter("lachesis/peer/worked", nil)
+	peerIdleTimer        = metrics.GetOrRegisterTimer("lachesis/peer/idletimer", nil)
+	peerWorkedTimer      = metrics.GetOrRegisterTimer("lachesis/peer/workedtimer", nil)
+	peersSyncedGauge     = metrics.GetOrRegisterGauge("p2p/peers/synced", nil)
 	peersMoreSyncedGauge = metrics.GetOrRegisterGauge("p2p/peers/moresynced", nil)
-	peersSendingGauge = metrics.GetOrRegisterGauge("p2p/peers/sending", nil)
-	lastMetricsUpdate = int64(0)
+	peersSendingGauge    = metrics.GetOrRegisterGauge("p2p/peers/sending", nil)
+	lastMetricsUpdate    = int64(0)
 )
 
 func errResp(code errCode, format string, v ...interface{}) error {
@@ -649,7 +649,16 @@ func (h *handler) unregisterPeer(id string) {
 }
 
 func (h *handler) Start(maxPeers int) {
-	h.snapsyncStageTick()
+
+	// setup snap sync only when enabled
+	if h.store.evm.Snaps == nil {
+		h.syncStatus.Set(ssEvents)
+	} else {
+		h.snapsyncStageTick()
+		h.loopsWg.Add(2)
+		go h.snapsyncStateLoop()
+		go h.snapsyncStageLoop()
+	}
 
 	h.maxPeers = maxPeers
 
@@ -676,9 +685,6 @@ func (h *handler) Start(maxPeers int) {
 
 	// start sync handlers
 	go h.txsyncLoop()
-	h.loopsWg.Add(2)
-	go h.snapsyncStateLoop()
-	go h.snapsyncStageLoop()
 	h.dagFetcher.Start()
 	h.txFetcher.Start()
 	h.checkers.Heavycheck.Start()
@@ -775,7 +781,7 @@ func (h *handler) highestPeerProgress() PeerProgress {
 }
 
 func (h *handler) updateMetrics() {
-	if atomic.LoadInt64(&lastMetricsUpdate) < time.Now().Add(-5 * time.Second).Unix() {
+	if atomic.LoadInt64(&lastMetricsUpdate) < time.Now().Add(-5*time.Second).Unix() {
 		atomic.StoreInt64(&lastMetricsUpdate, time.Now().Unix())
 		myBlock := h.store.GetBlockState().LastBlock.Idx
 		maxBlock := h.highestPeerProgress().LastBlockIdx

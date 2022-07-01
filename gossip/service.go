@@ -3,6 +3,7 @@ package gossip
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -15,7 +16,6 @@ import (
 	"github.com/Fantom-foundation/lachesis-base/lachesis"
 	"github.com/Fantom-foundation/lachesis-base/utils/workers"
 	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/protocols/snap"
 	"github.com/ethereum/go-ethereum/event"
@@ -434,7 +434,9 @@ func (s *Service) Start() error {
 		}
 		root = hash.Zero
 	}
-	_ = s.store.GenerateSnapshotAt(common.Hash(root), true)
+	if s.config.AllowSnapshot {
+		_ = s.store.GenerateSnapshotAt(common.Hash(root), true)
+	}
 
 	// start blocks processor
 	s.blockProcTasks.Start(1)
