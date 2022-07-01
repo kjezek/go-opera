@@ -51,34 +51,34 @@ var (
 	snapshotStorageReadTimer = metrics.GetOrRegisterTimer("chain/snapshot/storage/reads", nil)
 	snapshotCommitTimer      = metrics.GetOrRegisterTimer("chain/snapshot/commits", nil)
 
-	blockInsertTimer     = metrics.GetOrRegisterTimer("chain/inserts", nil)
-	blockExecutionTimer  = metrics.GetOrRegisterTimer("chain/execution", nil)
-	blockWriteTimer      = metrics.GetOrRegisterTimer("chain/write", nil)
+	blockInsertTimer    = metrics.GetOrRegisterTimer("chain/inserts", nil)
+	blockExecutionTimer = metrics.GetOrRegisterTimer("chain/execution", nil)
+	blockWriteTimer     = metrics.GetOrRegisterTimer("chain/write", nil)
 
-	executionExternalTimer  = metrics.GetOrRegisterTimer("chain/execution/external", nil)
-	beforeExecutionTimer  = metrics.GetOrRegisterTimer("chain/before/execute", nil)
+	executionExternalTimer = metrics.GetOrRegisterTimer("chain/execution/external", nil)
+	beforeExecutionTimer   = metrics.GetOrRegisterTimer("chain/before/execute", nil)
 
 	_ = metrics.GetOrRegisterMeter("chain/reorg/executes", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/add", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/drop", nil)
 	_ = metrics.GetOrRegisterMeter("chain/reorg/invalidTx", nil)
 
-	txsCounter  = metrics.GetOrRegisterCounter("chain/txs/count", nil)
-	txsEvmCounter  = metrics.GetOrRegisterCounter("chain/txs/evmcount", nil)
-	txsGasCounter  = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
-	evmTimeCounter = metrics.GetOrRegisterCounter("chain/txs/evmtime", nil)
-	dbTimeCounter  = metrics.GetOrRegisterCounter("chain/txs/dbtime", nil)
-	hashTimeCounter = metrics.GetOrRegisterCounter("chain/txs/hashtime", nil)
-	sstoreCountCounter = metrics.GetOrRegisterCounter("chain/txs/sstore/count", nil)
-	sstoreTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sstore/time", nil)
-	sloadCountCounter = metrics.GetOrRegisterCounter("chain/txs/sload/count", nil)
-	sloadTimeCounter = metrics.GetOrRegisterCounter("chain/txs/sload/time", nil)
+	txsCounter               = metrics.GetOrRegisterCounter("chain/txs/count", nil)
+	txsEvmCounter            = metrics.GetOrRegisterCounter("chain/txs/evmcount", nil)
+	txsGasCounter            = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
+	evmTimeCounter           = metrics.GetOrRegisterCounter("chain/txs/evmtime", nil)
+	dbTimeCounter            = metrics.GetOrRegisterCounter("chain/txs/dbtime", nil)
+	hashTimeCounter          = metrics.GetOrRegisterCounter("chain/txs/hashtime", nil)
+	sstoreCountCounter       = metrics.GetOrRegisterCounter("chain/txs/sstore/count", nil)
+	sstoreTimeCounter        = metrics.GetOrRegisterCounter("chain/txs/sstore/time", nil)
+	sloadCountCounter        = metrics.GetOrRegisterCounter("chain/txs/sload/count", nil)
+	sloadTimeCounter         = metrics.GetOrRegisterCounter("chain/txs/sload/time", nil)
 	totalInstructionsCounter = metrics.GetOrRegisterCounter("chain/txs/instructions", nil)
 
-	waitingBlockProcCounter   = metrics.GetOrRegisterCounter("lachesis/worker/daginserter/waitingblockproc", nil)
-	preInternalCounter  = metrics.GetOrRegisterCounter("chain/txs/preinternal", nil)
-	postInternalCounter  = metrics.GetOrRegisterCounter("chain/txs/postinternal", nil)
-	sealingCounter  = metrics.GetOrRegisterCounter("chain/txs/sealing", nil)
+	waitingBlockProcCounter = metrics.GetOrRegisterCounter("lachesis/worker/daginserter/waitingblockproc", nil)
+	preInternalCounter      = metrics.GetOrRegisterCounter("chain/txs/preinternal", nil)
+	postInternalCounter     = metrics.GetOrRegisterCounter("chain/txs/postinternal", nil)
+	sealingCounter          = metrics.GetOrRegisterCounter("chain/txs/sealing", nil)
 )
 
 type ExtendedTxPosition struct {
@@ -133,6 +133,9 @@ func consensusCallbackBeginBlockFn(
 
 		// Get stateDB
 		statedb, err := store.evm.StateDB(bs.FinalizedStateRoot)
+		if store.cfg.AllowPrefetch {
+			statedb.StartPrefetcher("chain")
+		}
 		if err != nil {
 			log.Crit("Failed to open StateDB", "err", err)
 		}

@@ -127,6 +127,7 @@ type (
 		MaxNonFlushedSize   int
 		MaxNonFlushedPeriod time.Duration
 		TraceTransactions   bool
+		AllowPrefetch       bool
 	}
 )
 

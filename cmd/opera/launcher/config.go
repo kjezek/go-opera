@@ -70,6 +70,10 @@ var (
 		Usage: "Megabytes of memory allocated to internal caching",
 		Value: DefaultCacheSize,
 	}
+	TriePrefetchFlag = cli.BoolFlag{
+		Name:  "prefetch",
+		Usage: "Enable pre-fetch of Accounts and Storages",
+	}
 	// GenesisFlag specifies network genesis configuration
 	GenesisFlag = cli.StringFlag{
 		Name:  "genesis",
@@ -331,6 +335,7 @@ func gossipStoreConfigWithFlags(ctx *cli.Context, src gossip.StoreConfig) (gossi
 		}
 		cfg.EVM.Cache.TrieDirtyDisabled = ctx.GlobalString(utils.GCModeFlag.Name) == "archive"
 	}
+	cfg.AllowPrefetch = ctx.Bool(utils.SnapshotFlag.Name)
 	return cfg, nil
 }
 
