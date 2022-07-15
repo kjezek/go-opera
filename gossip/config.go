@@ -80,6 +80,9 @@ type (
 
 		AllowSnapsync bool
 
+		// Enable snapshot
+		AllowSnapshot bool
+
 		TxIndex bool // Whether to enable indexing transactions and receipts or not
 
 		// Protocol options
@@ -124,6 +127,7 @@ type (
 		MaxNonFlushedSize   int
 		MaxNonFlushedPeriod time.Duration
 		TraceTransactions   bool
+		AllowPrefetch       bool
 	}
 )
 
