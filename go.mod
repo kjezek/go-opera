@@ -8,7 +8,6 @@ require (
 	github.com/certifi/gocertifi v0.0.0-20191021191039-0944d244cd40 // indirect
 	github.com/cespare/cp v1.1.1
 	github.com/cockroachdb/pebble v0.0.0-20220524133354-f30672e7240b
-	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deckarep/golang-set v1.7.1
 	github.com/docker/docker v1.13.1
@@ -47,7 +46,7 @@ require (
 )
 
 // v1.10.8-ftm-rc4-rpc-timeout
-replace github.com/ethereum/go-ethereum => github.com/hkalina/go-ethereum v1.9.7-0.20220610081554-64d409b8b4c2
+replace github.com/ethereum/go-ethereum => github.com/kjezek/go-ethereum v1.9.7-0.20220715080831-3df2c13ee6fd
 
 replace github.com/dvyukov/go-fuzz => github.com/guzenok/go-fuzz v0.0.0-20210103140116-f9104dfb626f
 
