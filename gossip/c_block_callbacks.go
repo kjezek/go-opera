@@ -58,11 +58,26 @@ var (
 	executionExternalTimer  = metrics.GetOrRegisterTimer("chain/execution/external", nil)
 	beforeExecutionTimer  = metrics.GetOrRegisterTimer("chain/before/execute", nil)
 
-	_ = metrics.GetOrRegisterMeter("chain/reorg/executes", nil)
-	_ = metrics.GetOrRegisterMeter("chain/reorg/add", nil)
-	_ = metrics.GetOrRegisterMeter("chain/reorg/drop", nil)
-	_ = metrics.GetOrRegisterMeter("chain/reorg/invalidTx", nil)
+	accountReadCounter   = metrics.GetOrRegisterCounter("chain/account/reads/counter", nil)
+	accountHashCounter   = metrics.GetOrRegisterCounter("chain/account/hashes/counter", nil)
+	accountUpdateCounter = metrics.GetOrRegisterCounter("chain/account/updates/counter", nil)
+	accountCommitCounter = metrics.GetOrRegisterCounter("chain/account/commits/counter", nil)
 
+	storageReadCounter   = metrics.GetOrRegisterCounter("chain/storage/reads/counter", nil)
+	storageHashCounter   = metrics.GetOrRegisterCounter("chain/storage/hashes/counter", nil)
+	storageUpdateCounter = metrics.GetOrRegisterCounter("chain/storage/updates/counter", nil)
+	storageCommitCounter = metrics.GetOrRegisterCounter("chain/storage/commits/counter", nil)
+
+	snapshotAccountReadCounter = metrics.GetOrRegisterCounter("chain/snapshot/account/reads/counter", nil)
+	snapshotStorageReadCounter = metrics.GetOrRegisterCounter("chain/snapshot/storage/reads/counter", nil)
+	snapshotCommitCounter      = metrics.GetOrRegisterCounter("chain/snapshot/commits/counter", nil)
+
+	blockInsertCounter     = metrics.GetOrRegisterCounter("chain/inserts/counter", nil)
+	blockExecutionCounter  = metrics.GetOrRegisterCounter("chain/execution/counter", nil)
+	blockWriteCounter      = metrics.GetOrRegisterCounter("chain/write/counter", nil)
+
+	beforeExecutionCounter  = metrics.GetOrRegisterCounter("chain/before/execute/counter", nil)
+	
 	txsCounter  = metrics.GetOrRegisterCounter("chain/txs/count", nil)
 	txsEvmCounter  = metrics.GetOrRegisterCounter("chain/txs/evmcount", nil)
 	txsGasCounter  = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
@@ -289,6 +304,7 @@ func consensusCallbackBeginBlockFn(
 				evmProcessor := blockProc.EVMModule.Start(blockCtx, statedb, evmStateReader, onNewLogAll, es.Rules, evmCfg, es.Rules.EvmChainConfig(store.GetUpgradeHeights()))
 				executionStart := time.Now()
 				beforeExecutionTimer.Update(executionStart.Sub(start)) // from block processing start to EVM init
+				beforeExecutionCounter.Inc(executionStart.Sub(start).Nanoseconds()) // from block processing start to EVM init
 
 				// Execute pre-internal transactions
 				preInternalStart := time.Now()
@@ -466,13 +482,21 @@ func consensusCallbackBeginBlockFn(
 					storageUpdateTimer.Update(statedb.StorageUpdates)
 					snapshotAccountReadTimer.Update(statedb.SnapshotAccountReads)
 					snapshotStorageReadTimer.Update(statedb.SnapshotStorageReads)
+					accountReadCounter.Inc(int64(statedb.AccountReads))
+					storageReadCounter.Inc(int64(statedb.StorageReads))
+					accountUpdateCounter.Inc(int64(statedb.AccountUpdates))
+					storageUpdateCounter.Inc(int64(statedb.StorageUpdates))
+					snapshotAccountReadCounter.Inc(int64(statedb.SnapshotAccountReads))
+					snapshotStorageReadCounter.Inc(int64(statedb.SnapshotStorageReads))
 					triehashAll := statedb.AccountHashes + statedb.StorageHashes
 					trieprocAll := getTrieProc(statedb)
-					blockExecutionTimer.Update(time.Since(executionStart) - trieprocAll - triehashAll)
-					// Update the metrics touched during block validation
+					executionTime := time.Since(executionStart) - trieprocAll - triehashAll
+					blockExecutionTimer.Update(executionTime)
+					blockExecutionCounter.Inc(int64(executionTime))
 					accountHashTimer.Update(statedb.AccountHashes)
 					storageHashTimer.Update(statedb.StorageHashes)
-					// Update the metrics touched by new block
+					accountHashCounter.Inc(int64(statedb.AccountHashes))
+					storageHashCounter.Inc(int64(statedb.StorageHashes))
 					headBlockGauge.Update(int64(blockCtx.Idx))
 					headHeaderGauge.Update(int64(blockCtx.Idx))
 					headFastBlockGauge.Update(int64(blockCtx.Idx))
@@ -499,6 +523,11 @@ func consensusCallbackBeginBlockFn(
 					snapshotCommitTimer.Update(statedb.SnapshotCommits)
 					blockWriteTimer.Update(time.Since(commitStart) - (statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits - commitsSumBefore))
 					blockInsertTimer.UpdateSince(start)
+					accountCommitCounter.Inc(int64(statedb.AccountCommits))
+					storageCommitCounter.Inc(int64(statedb.StorageCommits))
+					snapshotCommitCounter.Inc(int64(statedb.SnapshotCommits))
+					blockWriteCounter.Inc(int64(time.Since(commitStart) - (statedb.AccountCommits + statedb.StorageCommits + statedb.SnapshotCommits - commitsSumBefore)))
+					blockInsertCounter.Inc(int64(time.Since(start)))
 
 					now := time.Now()
 					log.Info("New block", "index", blockCtx.Idx, "id", block.Atropos, "gas_used",
