@@ -46,7 +46,7 @@ require (
 )
 
 // v1.10.8-ftm-rc4-rpc-timeout
-replace github.com/ethereum/go-ethereum => github.com/kjezek/go-ethereum v1.9.7-0.20220715080831-3df2c13ee6fd
+replace github.com/ethereum/go-ethereum => github.com/kjezek/go-ethereum v1.9.7-0.20220823143306-04da925cb134
 
 replace github.com/dvyukov/go-fuzz => github.com/guzenok/go-fuzz v0.0.0-20210103140116-f9104dfb626f
 
