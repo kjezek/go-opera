@@ -72,9 +72,10 @@ var (
 	snapshotStorageReadCounter = metrics.GetOrRegisterCounter("chain/snapshot/storage/reads/counter", nil)
 	snapshotCommitCounter      = metrics.GetOrRegisterCounter("chain/snapshot/commits/counter", nil)
 
-	blockInsertCounter    = metrics.GetOrRegisterCounter("chain/inserts/counter", nil)
-	blockExecutionCounter = metrics.GetOrRegisterCounter("chain/execution/counter", nil)
-	blockWriteCounter     = metrics.GetOrRegisterCounter("chain/write/counter", nil)
+	blockInsertCounter       = metrics.GetOrRegisterCounter("chain/inserts/counter", nil)
+	blockExecutionCounter    = metrics.GetOrRegisterCounter("chain/execution/counter", nil)
+	blockWriteCounter        = metrics.GetOrRegisterCounter("chain/write/counter", nil)
+	blockQueueWaitingCounter = metrics.GetOrRegisterCounter("chain/execution/queuewaiting/counter", nil)
 
 	beforeExecutionCounter = metrics.GetOrRegisterCounter("chain/before/execute/counter", nil)
 
@@ -540,11 +541,13 @@ func consensusCallbackBeginBlockFn(
 						"age", utils.PrettyDuration(now.Sub(block.Time.Time())), "t", utils.PrettyDuration(now.Sub(start)))
 				}
 				if confirmedEvents.Len() != 0 {
+					waitingStart := time.Now()
 					atomic.StoreUint32(blockBusyFlag, 1)
 					wg.Add(1)
 					err := parallelTasks.Enqueue(func() {
 						defer atomic.StoreUint32(blockBusyFlag, 0)
 						defer wg.Done()
+						blockQueueWaitingCounter.Inc(int64(time.Since(waitingStart)))
 						blockFn()
 					})
 					if err != nil {
