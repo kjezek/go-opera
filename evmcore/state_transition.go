@@ -18,8 +18,10 @@ package evmcore
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/metrics"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -289,7 +291,19 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	} else {
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
+		var (
+			stateDbStartProc, stateDbStartHash time.Duration
+			start                              time.Time
+		)
+		if metrics.EnabledExpensive {
+			start = time.Now()
+			stateDbStartProc = st.state.GetTrieProcTime()
+			stateDbStartHash = st.state.GetTrieHashTime()
+		}
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
+		if metrics.EnabledExpensive {
+			st.state.UpdateEvmCallTime(start, stateDbStartProc, stateDbStartHash)
+		}
 	}
 	// use 10% of not used gas
 	if !st.internal() {
