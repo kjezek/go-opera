@@ -1,13 +1,9 @@
 package integration
 
 import (
-	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"runtime/debug"
-	"runtime/trace"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,14 +36,14 @@ type DropableStoreWithMetrics struct {
 	diskReadMeter  metrics.Meter // Meter for measuring the effective amount of data read
 	diskWriteMeter metrics.Meter // Meter for measuring the effective amount of data written
 
-	prefixReadGauge [512]metrics.Gauge
+	prefixReadGauge  [512]metrics.Gauge
 	prefixWriteGauge [512]metrics.Gauge
-	batchWriteGauge metrics.Gauge
+	batchWriteGauge  metrics.Gauge
 
 	prefixUpdateDuration [512]int64
-	prefixReadDuration [512]int64
-	batchWriteDuration int64
-	name string
+	prefixReadDuration   [512]int64
+	batchWriteDuration   int64
+	name                 string
 
 	quitLock sync.Mutex      // Mutex protecting the quit channel access
 	quitChan chan chan error // Quit channel to stop the metrics collection before closing the database
@@ -144,25 +140,25 @@ func (ds *DropableStoreWithMetrics) markPrefixes() {
 	ds.markPrefixSingle([]byte{'M', 'o'}) // StorageSnaps
 	ds.markPrefixSingle([]byte{'M', 'a'}) // AccountSnaps
 	ds.markPrefixSingle([]byte{'M', 'c'}) // EvmCodes
-	ds.markPrefixSingle([]byte{'L'}) // EvmLogs
-	ds.markPrefixSingle([]byte{'g'}) // Genesis
-	ds.markPrefixSingle([]byte{'b'}) // Blocks
-	ds.markPrefixSingle([]byte{'V'}) // NetVersion
-	ds.markPrefixSingle([]byte{'x'}) // TxPositions
-	ds.markPrefixSingle([]byte{'P'}) // EpochBlocks
-	ds.markPrefixSingle([]byte{'r'}) // Receipts
-	ds.markPrefixSingle([]byte{'B'}) // BlockHashes
-	ds.markPrefixSingle([]byte{'S'}) // SfcAPI
-	ds.markPrefixSingle([]byte{'h'}) // BlockEpochStateHistory
-	ds.markPrefixSingle([]byte{'D'}) // BlockEpochState
-	ds.markPrefixSingle([]byte{'_'}) // Version
-	ds.markPrefixSingle([]byte{'l'}) // HighestLamport
-	ds.markPrefixSingle([]byte{'*'}) // LlrLastBlockVotes
-	ds.markPrefixSingle([]byte{'!'}) // LlrState
-	ds.markPrefixSingle([]byte{'('}) // LlrLastEpochVote
-	ds.markPrefixSingle([]byte{'X'}) // Txs
-	ds.markPrefixSingle([]byte{'$'}) // LlrBlockVotes
-	ds.markPrefixSingle([]byte{'t'}) // JDajc: TransactionTraces
+	ds.markPrefixSingle([]byte{'L'})      // EvmLogs
+	ds.markPrefixSingle([]byte{'g'})      // Genesis
+	ds.markPrefixSingle([]byte{'b'})      // Blocks
+	ds.markPrefixSingle([]byte{'V'})      // NetVersion
+	ds.markPrefixSingle([]byte{'x'})      // TxPositions
+	ds.markPrefixSingle([]byte{'P'})      // EpochBlocks
+	ds.markPrefixSingle([]byte{'r'})      // Receipts
+	ds.markPrefixSingle([]byte{'B'})      // BlockHashes
+	ds.markPrefixSingle([]byte{'S'})      // SfcAPI
+	ds.markPrefixSingle([]byte{'h'})      // BlockEpochStateHistory
+	ds.markPrefixSingle([]byte{'D'})      // BlockEpochState
+	ds.markPrefixSingle([]byte{'_'})      // Version
+	ds.markPrefixSingle([]byte{'l'})      // HighestLamport
+	ds.markPrefixSingle([]byte{'*'})      // LlrLastBlockVotes
+	ds.markPrefixSingle([]byte{'!'})      // LlrState
+	ds.markPrefixSingle([]byte{'('})      // LlrLastEpochVote
+	ds.markPrefixSingle([]byte{'X'})      // Txs
+	ds.markPrefixSingle([]byte{'$'})      // LlrBlockVotes
+	ds.markPrefixSingle([]byte{'t'})      // JDajc: TransactionTraces
 	ds.markRange(0, 511, 511, "all")
 	ds.batchWriteGauge.Update(atomic.LoadInt64(&ds.batchWriteDuration))
 }
@@ -184,30 +180,30 @@ func (ds *DropableStoreWithMetrics) Stat(property string) (string, error) {
 }
 
 func (ds *DropableStoreWithMetrics) Put(key []byte, value []byte) error {
-	defer func(start time.Time) { atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
-	if bytes.HasPrefix(key, []byte{'L'}) {
-		st := string(debug.Stack())
-		if ! strings.Contains(st, "consensusCallbackBeginBlockFn") {
-			ctx, task := trace.NewTask(context.Background(), "PutEvmLog")
-			trace.Log(ctx, "PutEvmLogStack", st)
-			defer task.End()
-		}
-	}
+	defer func(start time.Time) {
+		atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start)))
+	}(time.Now())
 	return ds.DropableStore.Put(key, value)
 }
 
 func (ds *DropableStoreWithMetrics) Delete(key []byte) error {
-	defer func(start time.Time) { atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start)))
+	}(time.Now())
 	return ds.DropableStore.Delete(key)
 }
 
 func (ds *DropableStoreWithMetrics) Has(key []byte) (bool, error) {
-	defer func(start time.Time) { atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start)))
+	}(time.Now())
 	return ds.DropableStore.Has(key)
 }
 
 func (ds *DropableStoreWithMetrics) Get(key []byte) ([]byte, error) {
-	defer func(start time.Time) { atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start)))
+	}(time.Now())
 	return ds.DropableStore.Get(key)
 }
 
@@ -216,7 +212,9 @@ func (ds *DropableStoreWithMetrics) NewBatch() kvdb.Batch {
 }
 
 func (ds *DropableStoreWithMetrics) NewIterator(prefix []byte, start []byte) kvdb.Iterator {
-	defer func(start time.Time) { atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(prefix)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&ds.prefixReadDuration[prefixIndex(prefix)], int64(time.Since(start)))
+	}(time.Now())
 	return &iteratorWithMetrics{ds.DropableStore.NewIterator(prefix, start), ds, prefix}
 }
 
@@ -234,15 +232,9 @@ type batchWithMetrics struct {
 }
 
 func (b *batchWithMetrics) Put(key []byte, value []byte) error {
-	defer func(start time.Time) { atomic.AddInt64(&b.ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
-	if bytes.HasPrefix(key, []byte{'L'}) {
-		st := string(debug.Stack())
-		if ! strings.Contains(st, "consensusCallbackBeginBlockFn") {
-			ctx, task := trace.NewTask(context.Background(), "PutEvmLog")
-			trace.Log(ctx, "PutEvmLogStack", st)
-			defer task.End()
-		}
-	}
+	defer func(start time.Time) {
+		atomic.AddInt64(&b.ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start)))
+	}(time.Now())
 	return b.Batch.Put(key, value)
 }
 
@@ -253,12 +245,14 @@ func (b *batchWithMetrics) Write() error {
 
 type iteratorWithMetrics struct {
 	kvdb.Iterator
-	ds *DropableStoreWithMetrics
+	ds     *DropableStoreWithMetrics
 	prefix []byte
 }
 
 func (b *iteratorWithMetrics) Next() bool {
-	defer func(start time.Time) { atomic.AddInt64(&b.ds.prefixReadDuration[prefixIndex(b.prefix)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&b.ds.prefixReadDuration[prefixIndex(b.prefix)], int64(time.Since(start)))
+	}(time.Now())
 	return b.Iterator.Next()
 }
 
@@ -268,12 +262,16 @@ type snapshotWithMetrics struct {
 }
 
 func (s *snapshotWithMetrics) Get(key []byte) ([]byte, error) {
-	defer func(start time.Time) { atomic.AddInt64(&s.ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&s.ds.prefixReadDuration[prefixIndex(key)], int64(time.Since(start)))
+	}(time.Now())
 	return s.Snapshot.Get(key)
 }
 
 func (s *snapshotWithMetrics) NewIterator(prefix []byte, start []byte) kvdb.Iterator {
-	defer func(start time.Time) { atomic.AddInt64(&s.ds.prefixReadDuration[prefixIndex(prefix)], int64(time.Since(start))) }(time.Now())
+	defer func(start time.Time) {
+		atomic.AddInt64(&s.ds.prefixReadDuration[prefixIndex(prefix)], int64(time.Since(start)))
+	}(time.Now())
 	return &iteratorWithMetrics{s.ds.DropableStore.NewIterator(prefix, start), s.ds, prefix}
 }
 
