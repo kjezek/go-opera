@@ -79,6 +79,9 @@ var (
 
 	beforeExecutionCounter = metrics.GetOrRegisterCounter("chain/before/execute/counter", nil)
 
+	beforeBlockExecutionCounter = metrics.GetOrRegisterCounter("chain/beforeblock/counter", nil)
+	afterBlockExecutionCounter  = metrics.GetOrRegisterCounter("chain/afterblock/counter", nil)
+
 	txsCounter               = metrics.GetOrRegisterCounter("chain/txs/count", nil)
 	txsEvmCounter            = metrics.GetOrRegisterCounter("chain/txs/evmcount", nil)
 	txsGasCounter            = metrics.GetOrRegisterCounter("chain/txs/gas", nil)
@@ -340,6 +343,8 @@ func consensusCallbackBeginBlockFn(
 					sealingCounter.Inc(time.Since(sealingStart).Nanoseconds())
 				}
 
+				beforeBlockExecutionCounter.Inc(time.Since(executionStart).Nanoseconds())
+
 				// At this point, newValidators may be returned and the rest of the code may be executed in a parallel thread
 				blockFn := func() {
 					// Execute post-internal transactions
@@ -497,6 +502,7 @@ func consensusCallbackBeginBlockFn(
 					executionTime := time.Since(executionStart) - trieprocAll - triehashAll
 					blockExecutionTimer.Update(executionTime)
 					blockExecutionCounter.Inc(int64(executionTime))
+					afterBlockExecutionCounter.Inc(time.Since(postInternalStart).Nanoseconds())
 					accountHashTimer.Update(statedb.AccountHashes)
 					storageHashTimer.Update(statedb.StorageHashes)
 					accountHashCounter.Inc(int64(statedb.AccountHashes))
