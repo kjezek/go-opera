@@ -1,13 +1,9 @@
 package integration
 
 import (
-	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"runtime/debug"
-	"runtime/trace"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -239,14 +235,6 @@ func (b *batchWithMetrics) Put(key []byte, value []byte) error {
 	defer func(start time.Time) {
 		atomic.AddInt64(&b.ds.prefixUpdateDuration[prefixIndex(key)], int64(time.Since(start)))
 	}(time.Now())
-	if bytes.HasPrefix(key, []byte{'L'}) {
-		st := string(debug.Stack())
-		if !strings.Contains(st, "consensusCallbackBeginBlockFn") {
-			ctx, task := trace.NewTask(context.Background(), "PutEvmLog")
-			trace.Log(ctx, "PutEvmLogStack", st)
-			defer task.End()
-		}
-	}
 	return b.Batch.Put(key, value)
 }
 
